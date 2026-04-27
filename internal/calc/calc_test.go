@@ -1,4 +1,4 @@
-package main
+package calc
 
 import (
 	"testing"
@@ -18,9 +18,9 @@ func TestWorkdays(t *testing.T) {
 		{2026, time.March, []int{19, 20}, 20},  // março com 2 feriados
 	}
 	for _, tt := range tests {
-		days := workdays(tt.year, tt.month, tt.feriados)
+		days := Workdays(tt.year, tt.month, tt.feriados)
 		if len(days) != tt.wantDays {
-			t.Errorf("workdays(%d, %v, %v) = %d dias, want %d", tt.year, tt.month, tt.feriados, len(days), tt.wantDays)
+			t.Errorf("Workdays(%d, %v, %v) = %d dias, want %d", tt.year, tt.month, tt.feriados, len(days), tt.wantDays)
 		}
 	}
 }
@@ -40,24 +40,24 @@ func TestParseMonthYear(t *testing.T) {
 		{"", 0, 0, true},
 	}
 	for _, tt := range tests {
-		y, m, err := parseMonthYear(tt.input)
+		y, m, err := ParseMonthYear(tt.input)
 		if tt.wantErr {
 			if err == nil {
-				t.Errorf("parseMonthYear(%q): esperava erro, got nil", tt.input)
+				t.Errorf("ParseMonthYear(%q): esperava erro, got nil", tt.input)
 			}
 			continue
 		}
 		if err != nil {
-			t.Errorf("parseMonthYear(%q): erro inesperado: %v", tt.input, err)
+			t.Errorf("ParseMonthYear(%q): erro inesperado: %v", tt.input, err)
 		}
 		if y != tt.wantY || m != tt.wantM {
-			t.Errorf("parseMonthYear(%q) = (%d, %v), want (%d, %v)", tt.input, y, m, tt.wantY, tt.wantM)
+			t.Errorf("ParseMonthYear(%q) = (%d, %v), want (%d, %v)", tt.input, y, m, tt.wantY, tt.wantM)
 		}
 	}
 }
 
 func TestModoA_MarchNoHolidays(t *testing.T) {
-	plan := calcModoA(2026, time.March, nil)
+	plan := CalcModoA(2026, time.March, nil)
 
 	if plan.TotalDays != 22 {
 		t.Errorf("TotalDays = %d, want 22", plan.TotalDays)
@@ -71,11 +71,11 @@ func TestModoA_MarchNoHolidays(t *testing.T) {
 	var extra float64
 	for _, w := range plan.Weeks {
 		for _, d := range w.Days {
-			extra += d.Hours - baseHoursPerDay
+			extra += d.Hours - BaseHoursPerDay
 		}
 	}
-	if extra > extraMonthly+0.01 {
-		t.Errorf("extra acumulada = %.2f, não deve exceder %.1f", extra, extraMonthly)
+	if extra > ExtraMonthly+0.01 {
+		t.Errorf("extra acumulada = %.2f, nao deve exceder %.1f", extra, ExtraMonthly)
 	}
 }
 
@@ -85,15 +85,15 @@ func TestModoA_ExtraDoesNotExceed16(t *testing.T) {
 		time.July, time.August, time.October, time.December,
 	}
 	for _, m := range months {
-		plan := calcModoA(2026, m, nil)
+		plan := CalcModoA(2026, m, nil)
 		var extra float64
 		for _, w := range plan.Weeks {
 			for _, d := range w.Days {
-				extra += d.Hours - baseHoursPerDay
+				extra += d.Hours - BaseHoursPerDay
 			}
 		}
-		if extra > extraMonthly+0.01 {
-			t.Errorf("mês %v: extra = %.2f excede %.1f", m, extra, extraMonthly)
+		if extra > ExtraMonthly+0.01 {
+			t.Errorf("mês %v: extra = %.2f excede %.1f", m, extra, ExtraMonthly)
 		}
 	}
 }
@@ -101,7 +101,7 @@ func TestModoA_ExtraDoesNotExceed16(t *testing.T) {
 func TestModoA_WithHoliday(t *testing.T) {
 	// March 2026 with holiday on day 19 (Thursday)
 	// workdays = 21 (one less), total = 21*8+16 = 184
-	plan := calcModoA(2026, time.March, []int{19})
+	plan := CalcModoA(2026, time.March, []int{19})
 
 	if plan.TotalDays != 21 {
 		t.Errorf("TotalDays = %d, want 21", plan.TotalDays)
@@ -116,16 +116,16 @@ func TestModoA_WithHoliday(t *testing.T) {
 	var extra float64
 	for _, w := range plan.Weeks {
 		for _, d := range w.Days {
-			extra += d.Hours - baseHoursPerDay
+			extra += d.Hours - BaseHoursPerDay
 		}
 	}
-	if extra > extraMonthly+0.01 {
-		t.Errorf("extra = %.2f excede %.1f", extra, extraMonthly)
+	if extra > ExtraMonthly+0.01 {
+		t.Errorf("extra = %.2f excede %.1f", extra, ExtraMonthly)
 	}
 }
 
 func TestModoB_UniformDistribution(t *testing.T) {
-	plan := calcModoB(2026, time.March, nil)
+	plan := CalcModoB(2026, time.March, nil)
 
 	if plan.TotalDays != 22 {
 		t.Errorf("TotalDays = %d, want 22", plan.TotalDays)
@@ -144,19 +144,19 @@ func TestModoB_UniformDistribution(t *testing.T) {
 		}
 	}
 	if maxH-minH > 0.25+1e-9 {
-		t.Errorf("variação entre dias = %.2f, deve ser <= 0.25h", maxH-minH)
+		t.Errorf("variacao entre dias = %.2f, deve ser <= 0.25h", maxH-minH)
 	}
 }
 
 func TestModoB_TotalHoursCorrect(t *testing.T) {
-	plan := calcModoB(2026, time.March, nil)
+	plan := CalcModoB(2026, time.March, nil)
 	var total float64
 	for _, w := range plan.Weeks {
 		for _, d := range w.Days {
 			total += d.Hours
 		}
 	}
-	expected := float64(plan.TotalDays)*baseHoursPerDay + extraMonthly // 192
+	expected := float64(plan.TotalDays)*BaseHoursPerDay + ExtraMonthly // 192
 	// Allow tolerance of 0.25h (one 0.25h quantum due to remainder distribution)
 	diff := total - expected
 	if diff < 0 {
@@ -168,29 +168,29 @@ func TestModoB_TotalHoursCorrect(t *testing.T) {
 }
 
 func TestModoB_ModoUniformeFlag(t *testing.T) {
-	plan := calcModoB(2026, time.March, nil)
+	plan := CalcModoB(2026, time.March, nil)
 	if !plan.ModoUniforme {
-		t.Error("ModoUniforme deve ser true para calcModoB")
+		t.Error("ModoUniforme deve ser true para CalcModoB")
 	}
 }
 
 func TestMaxPossibleExtra(t *testing.T) {
 	// March 2026 no holidays: many Mon-Thu available, easily > 16h
-	days := workdays(2026, time.March, nil)
-	max := maxPossibleExtra(days)
+	days := Workdays(2026, time.March, nil)
+	max := MaxPossibleExtra(days)
 	if max < 16.0 {
-		t.Errorf("março sem feriados: maxPossibleExtra = %.1f, should be >= 16", max)
+		t.Errorf("março sem feriados: MaxPossibleExtra = %.1f, should be >= 16", max)
 	}
 
 	// March 2026 with all Mon-Thu as holidays (days 2,3,4,5,9,10,11,12,16,17,18,19,23,24,25,26,30,31)
 	// Only Fridays remain: 6,13,20,27 — zero extra possible
 	allMonThu := []int{2, 3, 4, 5, 9, 10, 11, 12, 16, 17, 18, 19, 23, 24, 25, 26, 30, 31}
-	days2 := workdays(2026, time.March, allMonThu)
-	max2 := maxPossibleExtra(days2)
+	days2 := Workdays(2026, time.March, allMonThu)
+	max2 := MaxPossibleExtra(days2)
 	if max2 >= 16.0 {
-		t.Errorf("março com todos seg-qui como feriado: maxPossibleExtra = %.1f, should be < 16", max2)
+		t.Errorf("março com todos seg-qui como feriado: MaxPossibleExtra = %.1f, should be < 16", max2)
 	}
 	if max2 != 0.0 {
-		t.Errorf("com só sextas: maxPossibleExtra = %.1f, should be 0.0", max2)
+		t.Errorf("com só sextas: MaxPossibleExtra = %.1f, should be 0.0", max2)
 	}
 }

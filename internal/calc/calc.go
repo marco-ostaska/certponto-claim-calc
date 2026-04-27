@@ -1,15 +1,15 @@
-package main
+package calc
 
 import (
 	"fmt"
 	"math"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 )
 
-var monthNames = map[string]time.Month{
+// MonthNames maps Portuguese month abbreviations to time.Month values.
+var MonthNames = map[string]time.Month{
 	"Jan": time.January,
 	"Fev": time.February,
 	"Mar": time.March,
@@ -24,28 +24,38 @@ var monthNames = map[string]time.Month{
 	"Dez": time.December,
 }
 
-func parseMonthYear(s string) (int, time.Month, error) {
+// Config holds the parameters for a month calculation.
+type Config struct {
+	Year         int
+	Month        time.Month
+	Feriados     []int
+	ModoUniforme bool
+}
+
+// ParseMonthYear parses a "Mmm-YYYY" string (e.g. "Mar-2026") into year and month.
+func ParseMonthYear(s string) (int, time.Month, error) {
 	parts := strings.Split(s, "-")
 	if len(parts) != 2 {
-		return 0, 0, fmt.Errorf("formato inválido, use: Mmm-YYYY (ex: Mar-2026)")
+		return 0, 0, fmt.Errorf("formato invalido, use: Mmm-YYYY (ex: Mar-2026)")
 	}
-	m, ok := monthNames[parts[0]]
+	m, ok := MonthNames[parts[0]]
 	if !ok {
-		return 0, 0, fmt.Errorf("mês inválido %q, use abreviação em português (Jan, Fev, Mar...)", parts[0])
+		return 0, 0, fmt.Errorf("mes invalido %q, use abreviacao em portugues (Jan, Fev, Mar...)", parts[0])
 	}
 	y, err := strconv.Atoi(parts[1])
 	if err != nil || y < 2000 || y > 2100 {
-		return 0, 0, fmt.Errorf("ano inválido %q, use formato YYYY (ex: 2026)", parts[1])
+		return 0, 0, fmt.Errorf("ano invalido %q, use formato YYYY (ex: 2026)", parts[1])
 	}
 	return y, m, nil
 }
 
-// Day representa um dia útil do mês
+// Day represents a working day in the month.
 type Day struct {
 	Date time.Time
 }
 
-func workdays(year int, month time.Month, feriados []int) []Day {
+// Workdays returns the list of working days in the given month, excluding weekends and holidays.
+func Workdays(year int, month time.Month, feriados []int) []Day {
 	feriadoSet := make(map[int]bool)
 	for _, d := range feriados {
 		feriadoSet[d] = true
@@ -64,22 +74,25 @@ func workdays(year int, month time.Month, feriados []int) []Day {
 }
 
 const (
-	baseHoursPerDay = 8.0
-	extraMonthly    = 16.0
-	defaultMonThu   = 9.0
-	defaultFri      = 8.0
+	BaseHoursPerDay = 8.0
+	ExtraMonthly    = 16.0
+	DefaultMonThu   = 9.0
+	DefaultFri      = 8.0
 )
 
+// WorkDay represents a single working day with its allocated hours.
 type WorkDay struct {
 	Date  time.Time
 	Hours float64
 }
 
+// Week represents a week within the month plan.
 type Week struct {
 	Number int
 	Days   []WorkDay
 }
 
+// MonthPlan holds the complete calculation result for a month.
 type MonthPlan struct {
 	Year         int
 	Month        time.Month
@@ -89,24 +102,29 @@ type MonthPlan struct {
 	HolidayCount int
 	Weeks        []Week
 	ModoUniforme bool
+	Warning      string
 }
 
-func calcModoA(year int, month time.Month, feriados []int) MonthPlan {
-	days := workdays(year, month, feriados)
-	if maxExtra := maxPossibleExtra(days); maxExtra < extraMonthly {
-		fmt.Fprintf(os.Stderr, "Aviso: nao e possivel atingir %.0fh de extra neste mes com os feriados informados (maximo: %.1fh)\n",
-			extraMonthly, maxExtra)
+// CalcModoA calculates the monthly plan using the current (non-uniform) mode.
+// Extra hours are concentrated on Mon-Thu until the monthly target is reached.
+func CalcModoA(year int, month time.Month, feriados []int) MonthPlan {
+	days := Workdays(year, month, feriados)
+	var warning string
+	if maxExtra := MaxPossibleExtra(days); maxExtra < ExtraMonthly {
+		warning = fmt.Sprintf("Aviso: nao e possivel atingir %.0fh de extra neste mes com os feriados informados (maximo: %.1fh)",
+			ExtraMonthly, maxExtra)
 	}
-	holidayCount := countHolidays(year, month, feriados)
-	totalHours := float64(len(days))*baseHoursPerDay + extraMonthly
+	holidayCount := CountHolidays(year, month, feriados)
+	totalHours := float64(len(days))*BaseHoursPerDay + ExtraMonthly
 
 	plan := MonthPlan{
 		Year:         year,
 		Month:        month,
 		TotalDays:    len(days),
 		TotalHours:   totalHours,
-		ExtraHours:   extraMonthly,
+		ExtraHours:   ExtraMonthly,
 		HolidayCount: holidayCount,
+		Warning:      warning,
 	}
 
 	// Group days by ISO week
@@ -128,18 +146,18 @@ func calcModoA(year int, month time.Month, feriados []int) MonthPlan {
 
 		for _, d := range wDays {
 			var h float64
-			if extraAccum >= extraMonthly {
-				h = baseHoursPerDay
+			if extraAccum >= ExtraMonthly {
+				h = BaseHoursPerDay
 			} else if d.Date.Weekday() == time.Friday {
-				h = defaultFri // Friday: always 8h (no extra)
+				h = DefaultFri // Friday: always 8h (no extra)
 			} else {
 				// Mon-Thu: 9h if still accumulating
-				h = defaultMonThu
-				extraAccum += h - baseHoursPerDay
-				if extraAccum > extraMonthly {
-					overflow := extraAccum - extraMonthly
+				h = DefaultMonThu
+				extraAccum += h - BaseHoursPerDay
+				if extraAccum > ExtraMonthly {
+					overflow := extraAccum - ExtraMonthly
 					h -= overflow
-					extraAccum = extraMonthly
+					extraAccum = ExtraMonthly
 				}
 			}
 			week.Days = append(week.Days, WorkDay{Date: d.Date, Hours: h})
@@ -151,27 +169,31 @@ func calcModoA(year int, month time.Month, feriados []int) MonthPlan {
 	return plan
 }
 
-func calcModoB(year int, month time.Month, feriados []int) MonthPlan {
-	days := workdays(year, month, feriados)
-	if maxExtra := maxPossibleExtra(days); maxExtra < extraMonthly {
-		fmt.Fprintf(os.Stderr, "Aviso: nao e possivel atingir %.0fh de extra neste mes com os feriados informados (maximo: %.1fh)\n",
-			extraMonthly, maxExtra)
+// CalcModoB calculates the monthly plan using uniform (evenly distributed) mode.
+// Hours are distributed equally across all working days.
+func CalcModoB(year int, month time.Month, feriados []int) MonthPlan {
+	days := Workdays(year, month, feriados)
+	var warning string
+	if maxExtra := MaxPossibleExtra(days); maxExtra < ExtraMonthly {
+		warning = fmt.Sprintf("Aviso: nao e possivel atingir %.0fh de extra neste mes com os feriados informados (maximo: %.1fh)",
+			ExtraMonthly, maxExtra)
 	}
-	holidayCount := countHolidays(year, month, feriados)
-	totalHours := float64(len(days))*baseHoursPerDay + extraMonthly
+	holidayCount := CountHolidays(year, month, feriados)
+	totalHours := float64(len(days))*BaseHoursPerDay + ExtraMonthly
 
 	plan := MonthPlan{
 		Year:         year,
 		Month:        month,
 		TotalDays:    len(days),
 		TotalHours:   totalHours,
-		ExtraHours:   extraMonthly,
+		ExtraHours:   ExtraMonthly,
 		HolidayCount: holidayCount,
 		ModoUniforme: true,
+		Warning:      warning,
 	}
 
 	if len(days) == 0 {
-		fmt.Fprintf(os.Stderr, "Erro: nenhum dia útil encontrado neste mês (todos são feriados?)\n")
+		plan.Warning = "Erro: nenhum dia util encontrado neste mes (todos sao feriados?)"
 		return plan
 	}
 
@@ -211,8 +233,8 @@ func calcModoB(year int, month time.Month, feriados []int) MonthPlan {
 	return plan
 }
 
-// countHolidays counts how many of the given days are weekdays (not Sat/Sun)
-func countHolidays(year int, month time.Month, feriados []int) int {
+// CountHolidays counts how many of the given days are weekdays (not Sat/Sun).
+func CountHolidays(year int, month time.Month, feriados []int) int {
 	count := 0
 	for _, day := range feriados {
 		d := time.Date(year, month, day, 0, 0, 0, 0, time.Local)
@@ -223,10 +245,10 @@ func countHolidays(year int, month time.Month, feriados []int) int {
 	return count
 }
 
-// maxPossibleExtra calculates the maximum extra hours achievable in a month.
+// MaxPossibleExtra calculates the maximum extra hours achievable in a month.
 // Only Mon-Thu can generate extra (1h each). Fri generates 0 extra.
-// workdays() already excludes holidays, so we just count non-Friday days.
-func maxPossibleExtra(days []Day) float64 {
+// Workdays() already excludes holidays, so we just count non-Friday days.
+func MaxPossibleExtra(days []Day) float64 {
 	var max float64
 	for _, d := range days {
 		if d.Date.Weekday() != time.Friday {

@@ -1,4 +1,4 @@
-package main
+package calc
 
 import (
 	"strings"
@@ -17,9 +17,9 @@ func TestFormatClaim(t *testing.T) {
 		{8.25, "8.25"},
 	}
 	for _, tt := range tests {
-		got := formatClaim(tt.hours)
+		got := FormatClaim(tt.hours)
 		if got != tt.want {
-			t.Errorf("formatClaim(%.2f) = %q, want %q", tt.hours, got, tt.want)
+			t.Errorf("FormatClaim(%.2f) = %q, want %q", tt.hours, got, tt.want)
 		}
 	}
 }
@@ -36,17 +36,17 @@ func TestFormatCertPonto(t *testing.T) {
 		{8.25, "07:45", "17:00"}, // 8.25h + 1h = 9.25h before 17:00
 	}
 	for _, tt := range tests {
-		gotIn, gotOut := formatCertPonto(tt.hours)
+		gotIn, gotOut := FormatCertPonto(tt.hours)
 		if gotIn != tt.wantIn || gotOut != tt.wantOut {
-			t.Errorf("formatCertPonto(%.2f) = (%q, %q), want (%q, %q)",
+			t.Errorf("FormatCertPonto(%.2f) = (%q, %q), want (%q, %q)",
 				tt.hours, gotIn, gotOut, tt.wantIn, tt.wantOut)
 		}
 	}
 }
 
 func TestFormatClaimNoScientificNotation(t *testing.T) {
-	result := formatClaim(8.0)
+	result := FormatClaim(8.0)
 	if strings.Contains(result, "e") || strings.Contains(result, "E") {
-		t.Errorf("formatClaim não deve usar notação científica: %q", result)
+		t.Errorf("FormatClaim nao deve usar notacao cientifica: %q", result)
 	}
 }
