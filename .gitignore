@@ -1,0 +1,50 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Go vendor directory
+vendor/
+
+# Go workspace file
+go.work
+
+# Dependencies (if fetched locally)
+# Usually not needed if not vendoring
+
+# Build output
+/certponto-claim-calc
+certponto-claim-calc
+
+# IDE and Editor directories
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation and planning artifacts
+docs/
+
+# API response fixtures containing tokens (DO NOT REMOVE)
+legal_true.txt
+legal_false.txt
+
+# Agent-specific instructions
+AGENTS.md
+
+# Temporary files
+*.tmp
+*.bak
