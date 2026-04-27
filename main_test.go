@@ -1,11 +1,16 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"certponto-claim-calc/internal/calc"
 )
+
+// ── CLI tests ──
 
 func TestFullPlanMarch2026NoHolidays(t *testing.T) {
 	plan := calc.CalcModoA(2026, time.March, nil)
@@ -93,5 +98,114 @@ func TestParseArgsInvalid(t *testing.T) {
 		if err == nil {
 			t.Errorf("parseArgs(%v): esperava erro, got nil", args)
 		}
+	}
+}
+
+// ── HTTP handler tests ──
+
+func TestHandleAPI_MissingMonthParam(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/calc", nil)
+	w := httptest.NewRecorder()
+	handleAPI(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", w.Code)
+	}
+
+	var body map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not valid JSON: %v", err)
+	}
+	if _, ok := body["error"]; !ok {
+		t.Fatalf("expected 'error' key in response, got %v", body)
+	}
+}
+
+func TestHandleAPI_ValidMonth(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/calc?month=Mar-2026", nil)
+	w := httptest.NewRecorder()
+	handleAPI(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d; body: %s", w.Code, w.Body.String())
+	}
+
+	var body map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not valid JSON: %v", err)
+	}
+	if _, ok := body["mes"]; !ok {
+		t.Fatalf("expected 'mes' key in response, got %v", body)
+	}
+	if _, ok := body["weeks"]; !ok {
+		t.Fatalf("expected 'weeks' key in response, got %v", body)
+	}
+}
+
+func TestHandleAPI_InvalidModo(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/calc?month=Mar-2026&modo=invalid", nil)
+	w := httptest.NewRecorder()
+	handleAPI(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d; body: %s", w.Code, w.Body.String())
+	}
+
+	var body map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not valid JSON: %v", err)
+	}
+	if _, ok := body["error"]; !ok {
+		t.Fatalf("expected 'error' key in response, got %v", body)
+	}
+}
+
+func TestServeIndex(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	serveIndex(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	ct := w.Header().Get("Content-Type")
+	if ct != "text/html; charset=utf-8" {
+		t.Fatalf("expected Content-Type text/html; charset=utf-8, got %s", ct)
+	}
+
+	body := w.Body.String()
+	if len(body) == 0 {
+		t.Fatal("expected non-empty body for index.html")
+	}
+}
+
+func TestMuxRouting(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", serveIndex)
+	mux.HandleFunc("/api/calc", handleAPI)
+
+	// Test / serves index.html
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for /, got %d", w.Code)
+	}
+
+	// Test /api/calc without month returns 400
+	req2 := httptest.NewRequest(http.MethodGet, "/api/calc", nil)
+	w2 := httptest.NewRecorder()
+	mux.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for /api/calc without month, got %d", w2.Code)
+	}
+
+	// Test /api/calc with month returns 200
+	req3 := httptest.NewRequest(http.MethodGet, "/api/calc?month=Mar-2026", nil)
+	w3 := httptest.NewRecorder()
+	mux.ServeHTTP(w3, req3)
+	if w3.Code != http.StatusOK {
+		t.Fatalf("expected 200 for /api/calc?month=Mar-2026, got %d; body: %s", w3.Code, w3.Body.String())
 	}
 }
