@@ -24,6 +24,10 @@ go.work
 /certponto-claim-calc
 certponto-claim-calc
 
+# Pre-built binaries (not needed for Vercel)
+/calc
+/certXclaim.exe
+
 # IDE and Editor directories
 .idea/
 .vscode/

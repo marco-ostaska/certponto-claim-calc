@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Certponto - Calculadora de Claims</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --sidebar-w:280px;
+  --sidebar-bg:#0f172a;
+  --accent:#2563eb;
+  --green:#16a34a;
+  --amber:#d97706;
+  --red:#dc2626;
+  --red-bg:#fef2f2;
+  --text-primary:#0f172a;
+  --text-secondary:#64748b;
+  --text-light:#e2e8f0;
+  --text-muted:#94a3b8;
+  --bg-main:#f8fafc;
+  --border:#e2e8f0;
+  --total-bg:#0a0f1e;
+  --mono:'JetBrains Mono',monospace;
+  --sans:'Plus Jakarta Sans',system-ui,-apple-system,sans-serif;
+}
+html{font-size:16px;-webkit-font-smoothing:antialiased}
+body{font-family:var(--sans);background:var(--bg-main);color:var(--text-primary);min-height:100vh;display:flex}
+/* ── Sidebar ── */
+.sidebar{
+  width:var(--sidebar-w);min-height:100vh;background:var(--sidebar-bg);color:var(--text-light);
+  display:flex;flex-direction:column;padding:28px 24px 20px;position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:10;
+}
+.sidebar-logo{display:flex;align-items:center;gap:12px;margin-bottom:32px}
+.logo-badge{
+  width:40px;height:40px;border-radius:10px;background:var(--accent);
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-weight:700;font-size:1.25rem;color:#fff;
+}
+.logo-text h1{font-size:1.15rem;font-weight:700;letter-spacing:-.02em}
+.logo-text p{font-size:.75rem;color:var(--text-muted);margin-top:2px}
+.field{margin-bottom:18px}
+.field label{display:block;font-size:.75rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.field input[type=text]{
+  width:100%;padding:10px 12px;border-radius:8px;border:1px solid #334155;
+  background:#1e293b;color:var(--text-light);font-family:var(--mono);font-size:.875rem;
+  transition:border-color .15s;
+}
+.field input[type=text]::placeholder{color:#475569}
+.field input[type=text]:focus{outline:none;border-color:var(--accent)}
+.field .hint{font-size:.7rem;color:#475569;margin-top:4px}
+.month-nav{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.month-nav button{
+  width:36px;height:36px;border-radius:8px;border:1px solid #334155;
+  background:#1e293b;color:var(--text-light);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;font-size:1.1rem;
+  transition:background .15s,border-color .15s;
+}
+.month-nav button:hover:not(:disabled){background:#334155;border-color:#475569}
+.month-nav button:disabled{opacity:.3;cursor:not-allowed}
+.month-display{
+  font-family:var(--mono);font-size:.95rem;font-weight:600;color:var(--text-light);
+  min-width:100px;text-align:center;
+}
+.mode-toggle{
+  display:flex;background:#1e293b;border-radius:8px;padding:3px;border:1px solid #334155;
+}
+.mode-toggle button{
+  flex:1;padding:8px 0;border:none;border-radius:6px;background:transparent;
+  color:var(--text-muted);font-family:var(--sans);font-size:.8rem;font-weight:600;
+  cursor:pointer;transition:all .15s;
+}
+.mode-toggle button.active{background:var(--accent);color:#fff}
+.mode-toggle button:hover:not(.active){color:var(--text-light)}
+.error-box{
+  background:var(--red-bg);border:1px solid #fecaca;border-radius:8px;
+  padding:10px 12px;color:var(--red);font-size:.8rem;margin-bottom:12px;
+  display:none;
+}
+.error-box.show{display:block}
+.btn-calc{
+  width:100%;padding:12px;border:none;border-radius:8px;
+  background:var(--accent);color:#fff;font-family:var(--sans);
+  font-size:.9rem;font-weight:700;cursor:pointer;
+  transition:background .15s,transform .1s;display:flex;align-items:center;justify-content:center;gap:8px;
+}
+.btn-calc:hover{background:#1d4ed8}
+.btn-calc:active{transform:scale(.98)}
+.btn-calc:disabled{opacity:.6;cursor:not-allowed;transform:none}
+.spinner{
+  width:16px;height:16px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;
+  border-radius:50%;animation:spin .6s linear infinite;display:none;
+}
+.btn-calc.loading .spinner{display:block}
+@keyframes spin{to{transform:rotate(360deg)}}
+.sidebar-footer{margin-top:auto;padding-top:16px;border-top:1px solid #1e293b}
+.sidebar-footer code{
+  display:block;font-family:var(--mono);font-size:.65rem;color:#475569;
+  word-break:break-all;line-height:1.4;
+}
+/* ── Main ── */
+.main{flex:1;margin-left:var(--sidebar-w);min-height:100vh;padding:32px 40px}
+.empty-state{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:60vh;text-align:center;color:var(--text-secondary);
+}
+.empty-icon{font-size:3rem;margin-bottom:12px;opacity:.4}
+.empty-state p{font-size:.95rem}
+/* ── Summary Bar ── */
+.summary-bar{
+  display:flex;flex-wrap:wrap;gap:16px 28px;
+  background:var(--sidebar-bg);border-radius:10px;padding:16px 24px;
+  margin-bottom:24px;color:var(--text-light);
+}
+.summary-item .summary-label{font-size:.65rem;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);margin-bottom:2px}
+.summary-item .summary-value{font-family:var(--mono);font-size:1.05rem;font-weight:600}
+.summary-item .summary-sub{font-size:.65rem;color:var(--text-muted);margin-top:1px}
+/* ── Results Table ── */
+.results-table{width:100%;border-collapse:collapse;font-size:.85rem}
+.results-table th{
+  text-align:left;padding:8px 10px;font-weight:600;font-size:.7rem;
+  text-transform:uppercase;letter-spacing:.04em;color:var(--text-secondary);
+  border-bottom:2px solid var(--border);background:#fff;
+  position:sticky;top:0;z-index:2;
+}
+.results-table td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+.results-table tbody tr:nth-child(even) td{background:var(--bg-main)}
+.results-table tbody tr:nth-child(odd) td{background:#fff}
+.week-label-cell{
+  background:var(--sidebar-bg)!important;color:var(--text-light)!important;
+  font-weight:600;font-size:.8rem;padding-left:12px!important;
+  border-left:3px solid var(--accent)!important;
+}
+.day-name{font-weight:600}
+.day-number{font-family:var(--mono);font-weight:600}
+.day-date{font-family:var(--mono);font-size:.75rem;color:var(--text-secondary)}
+.badge{
+  display:inline-block;padding:2px 8px;border-radius:5px;font-family:var(--mono);
+  font-size:.78rem;font-weight:600;
+}
+.badge-blue{background:#dbeafe;color:#1e40af}
+.badge-green{background:#dcfce7;color:var(--green)}
+.certponto{font-family:var(--mono);font-size:.78rem}
+.tag{
+  display:inline-block;padding:1px 7px;border-radius:4px;font-size:.65rem;
+  font-weight:600;text-transform:uppercase;letter-spacing:.03em;margin-left:4px;
+}
+.tag-weekend{background:#f1f5f9;color:#64748b}
+.tag-holiday{background:#fef3c7;color:#92400e}
+.tag-short{background:#dcfce7;color:var(--green)}
+.row-dimmed td{opacity:.45}
+.row-dimmed td.week-label-cell{opacity:1}
+/* ── Week Summary Row ── */
+.week-summary td{
+  background:var(--sidebar-bg)!important;color:var(--text-light)!important;
+  font-size:.8rem;padding:8px 10px;
+}
+.week-summary .acc-extra{color:#4ade80;font-family:var(--mono);font-weight:600}
+/* ── Total Row ── */
+.total-row td{
+  background:var(--total-bg)!important;color:var(--text-light)!important;
+  font-weight:700;padding:10px;
+}
+.total-row .total-label{font-size:.9rem}
+.total-row .total-hours{font-family:var(--mono);font-size:1.1rem}
+.total-row .total-breakdown{font-family:var(--mono);font-size:.75rem;color:var(--text-muted)}
+.total-row .extra-green{color:#4ade80}
+/* ── Warning ── */
+.warning-box{
+  background:#fefce8;border:1px solid #fde047;border-radius:8px;
+  padding:10px 14px;font-size:.8rem;color:#854d0e;margin-top:16px;display:none;
+}
+.warning-box.show{display:block}
+/* ── Responsive ── */
+@media(max-width:767px){
+  body{flex-direction:column}
+  .sidebar{
+    position:relative;width:100%;min-height:auto;
+    padding:20px 16px;
+  }
+  .main{margin-left:0;padding:16px}
+  .summary-bar{padding:12px 16px;gap:10px 16px}
+  .results-table{font-size:.78rem}
+  .results-table th,.results-table td{padding:6px 6px}
+}
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-badge">C</div>
+    <div class="logo-text">
+      <h1>Certponto</h1>
+      <p>Calculadora de claims mensais</p>
+    </div>
+  </div>
+
+  <div class="field">
+    <label>Mes</label>
+    <div class="month-nav">
+      <button id="btn-prev" aria-label="Mes anterior">&#8249;</button>
+      <span class="month-display" id="month-display">Jan-2026</span>
+      <button id="btn-next" aria-label="Proximo mes">&#8250;</button>
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="feriados">Feriados</label>
+    <input type="text" id="feriados" placeholder="ex: 21, 25">
+    <div class="hint">Dias do mes separados por virgula</div>
+  </div>
+
+  <div class="field">
+    <label>Modo</label>
+    <div class="mode-toggle" id="mode-toggle">
+      <button class="active" data-mode="a">Jeito atual</button>
+      <button data-mode="uniforme">Uniforme</button>
+    </div>
+  </div>
+
+  <div class="error-box" id="error-box"></div>
+
+  <button class="btn-calc" id="btn-calc">
+    <span class="spinner" id="spinner"></span>
+    <span id="btn-text">Calcular</span>
+  </button>
+
+  <div class="sidebar-footer">
+    <code id="api-url">GET /api/calc?month=Jan-2026&amp;feriados=&amp;modo=a</code>
+  </div>
+</aside>
+
+<!-- Main content -->
+<main class="main" id="main">
+  <div class="empty-state" id="empty-state">
+    <div class="empty-icon">&#128197;</div>
+    <p>Preencha o formulario ao lado e clique em <strong>Calcular</strong></p>
+  </div>
+</main>
+
+<script>
+(function() {
+  // ── Portuguese month abbreviations matching Go ParseMonthYear ──
+  const MONTHS_ABBR = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const MONTHS_FULL  = ['Janeiro','Fevereiro','Marco','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+  // ── State ──
+  const now = new Date();
+  let monthObj = { month: now.getMonth(), year: now.getFullYear() };
+  let feriados = '';
+  let modo = 'a';
+  let loading = false;
+  let error = '';
+  let result = null;
+
+  const minMonth = { month: now.getMonth(), year: now.getFullYear() };
+
+  // ── DOM refs ──
+  const monthDisplay = document.getElementById('month-display');
+  const btnPrev      = document.getElementById('btn-prev');
+  const btnNext      = document.getElementById('btn-next');
+  const feriadosInput= document.getElementById('feriados');
+  const modeToggle   = document.getElementById('mode-toggle');
+  const errorBox     = document.getElementById('error-box');
+  const btnCalc      = document.getElementById('btn-calc');
+  const spinner      = document.getElementById('spinner');
+  const btnText      = document.getElementById('btn-text');
+  const apiUrl       = document.getElementById('api-url');
+  const mainEl       = document.getElementById('main');
+
+  // ── Helpers ──
+  function monthStr(m) { return MONTHS_ABBR[m.month] + '-' + m.year; }
+
+  function updateMonthDisplay() {
+    monthDisplay.textContent = monthStr(monthObj);
+    // Disable prev if at current month
+    const atMin = monthObj.year < minMonth.year || (monthObj.year === minMonth.year && monthObj.month <= minMonth.month);
+    btnPrev.disabled = atMin;
+    updateApiUrl();
+  }
+
+  function updateApiUrl() {
+    const url = '/api/calc?month=' + encodeURIComponent(monthStr(monthObj))
+              + '&feriados=' + encodeURIComponent(feriados)
+              + '&modo=' + encodeURIComponent(modo);
+    apiUrl.textContent = 'GET ' + url;
+  }
+
+  function advanceMonth(dir) {
+    monthObj.month += dir;
+    if (monthObj.month > 11) { monthObj.month = 0; monthObj.year++; }
+    if (monthObj.month < 0)   { monthObj.month = 11; monthObj.year--; }
+    updateMonthDisplay();
+  }
+
+  // ── Events ──
+  btnPrev.addEventListener('click', function() { advanceMonth(-1); });
+  btnNext.addEventListener('click', function() { advanceMonth(1); });
+
+  feriadosInput.addEventListener('input', function() {
+    feriados = this.value;
+    updateApiUrl();
+  });
+
+  modeToggle.addEventListener('click', function(e) {
+    var btn = e.target.closest('button[data-mode]');
+    if (!btn) return;
+    modo = btn.dataset.mode;
+    modeToggle.querySelectorAll('button').forEach(function(b) { b.classList.toggle('active', b === btn); });
+    updateApiUrl();
+  });
+
+  btnCalc.addEventListener('click', doCalc);
+
+  // Enter key in feriados input
+  feriadosInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') doCalc();
+  });
+
+  // ── Fetch ──
+  function doCalc() {
+    if (loading) return;
+    loading = true;
+    error = '';
+    btnCalc.classList.add('loading');
+    btnCalc.disabled = true;
+    btnText.textContent = 'Calculando...';
+    errorBox.classList.remove('show');
+
+    var url = '/api/calc?month=' + encodeURIComponent(monthStr(monthObj))
+            + '&feriados=' + encodeURIComponent(feriados)
+            + '&modo=' + encodeURIComponent(modo);
+
+    fetch(url)
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        loading = false;
+        btnCalc.classList.remove('loading');
+        btnCalc.disabled = false;
+        btnText.textContent = 'Calcular';
+
+        if (data.error) {
+          error = data.error;
+          result = null;
+          errorBox.textContent = error;
+          errorBox.classList.add('show');
+          render();
+          return;
+        }
+        result = data;
+        error = '';
+        render();
+      })
+      .catch(function(err) {
+        loading = false;
+        btnCalc.classList.remove('loading');
+        btnCalc.disabled = false;
+        btnText.textContent = 'Calcular';
+        error = err.message || 'Erro de conexao';
+        result = null;
+        errorBox.textContent = error;
+        errorBox.classList.add('show');
+        render();
+      });
+  }
+
+  // ── Render ──
+  function render() {
+    if (!result) {
+      mainEl.innerHTML = '<div class="empty-state"><div class="empty-icon">&#128197;</div>'
+        + '<p>Preencha o formulario ao lado e clique em <strong>Calcular</strong></p></div>';
+      return;
+    }
+
+    var r = result;
+    var html = '';
+
+    // ── Summary Bar ──
+    html += '<div class="summary-bar">';
+    html += summaryItem('Mes', r.mes);
+    html += summaryItem('Modo', r.modo);
+    html += summaryItem('Dias uteis', r.dias_uteis);
+    if (r.num_feriados > 0) {
+      html += summaryItem('Feriados', r.num_feriados);
+    }
+    html += summaryItem('Total', formatHours(r.horas_total), formatHours(r.horas_base) + 'h base + ' + formatHours(r.horas_extra) + 'h extra');
+    html += '</div>';
+
+    // ── Table ──
+    html += '<table class="results-table"><thead><tr>';
+    html += '<th>Dia</th><th>Data</th><th>Claim</th><th>CertPonto</th><th>Tipo</th>';
+    html += '</tr></thead><tbody>';
+
+    var weekNum = 0;
+    r.weeks.forEach(function(week) {
+      weekNum++;
+      // Week label row
+      html += '<tr><td colspan="5" class="week-label-cell">' + esc(week.label) + '</td></tr>';
+
+      var workingDays = 0;
+      var weekHours = 0;
+      var weekExtra = 0;
+
+      week.days.forEach(function(day) {
+        var dimmed = !day.is_working ? ' row-dimmed' : '';
+        html += '<tr class="' + dimmed + '">';
+
+        // Dia column: abbreviation + number
+        html += '<td><span class="day-name">' + esc(day.dia_abrev) + '</span> <span class="day-number">' + day.d + '</span></td>';
+
+        // Date in MM/DD format
+        var parts = day.date.split('-');
+        var dateStr = parts[1] + '/' + parts[2];
+        html += '<td class="day-date">' + dateStr + '</td>';
+
+        // Claim badge
+        var badgeClass = day.is_short_day ? 'badge badge-green' : 'badge badge-blue';
+        html += '<td><span class="' + badgeClass + '">' + esc(day.claim) + '</span></td>';
+
+        // CertPonto
+        html += '<td class="certponto">' + esc(day.certponto) + '</td>';
+
+        // Tags
+        html += '<td>';
+        if (day.is_weekend)   html += '<span class="tag tag-weekend">Fim de semana</span>';
+        if (day.is_feriado)   html += '<span class="tag tag-holiday">Feriado</span>';
+        if (day.is_short_day) html += '<span class="tag tag-short">8h</span>';
+        html += '</td>';
+
+        html += '</tr>';
+
+        if (day.is_working) {
+          workingDays++;
+          weekHours += parseFloat(day.claim) || 0;
+          weekExtra += day.extra;
+        }
+      });
+
+      // Week summary row
+      html += '<tr class="week-summary">';
+      html += '<td colspan="2"><strong>Semana ' + weekNum + '</strong></td>';
+      html += '<td>' + formatHours(weekHours) + '</td>';
+      html += '<td>' + workingDays + ' dias</td>';
+      html += '<td class="acc-extra">+' + formatHours(week.acc_extra) + ' extra</td>';
+      html += '</tr>';
+    });
+
+    // Total row
+    html += '<tr class="total-row">';
+    html += '<td colspan="2"><span class="total-label">Total do mes</span></td>';
+    html += '<td><span class="total-hours">' + formatHours(r.horas_total) + '</span>'
+          + '<div class="total-breakdown">' + formatHours(r.horas_base) + 'h base + <span class="extra-green">' + formatHours(r.horas_extra) + 'h</span> extra</div></td>';
+    html += '<td>' + r.dias_uteis + ' dias uteis</td>';
+    html += '<td></td>';
+    html += '</tr>';
+
+    html += '</tbody></table>';
+
+    // Warning
+    if (r.warning) {
+      html += '<div class="warning-box show">' + esc(r.warning) + '</div>';
+    }
+
+    mainEl.innerHTML = html;
+  }
+
+  function summaryItem(label, value, sub) {
+    var h = '<div class="summary-item"><div class="summary-label">' + esc(label) + '</div>';
+    h += '<div class="summary-value">' + esc(String(value)) + '</div>';
+    if (sub) h += '<div class="summary-sub">' + esc(sub) + '</div>';
+    h += '</div>';
+    return h;
+  }
+
+  function formatHours(n) {
+    // Format number: remove unnecessary trailing zeros but keep at least one decimal
+    if (n === 0) return '0';
+    var s = n.toFixed(2);
+    s = s.replace(/0+$/, '');
+    if (s.endsWith('.')) s += '0';
+    // Ensure one decimal place at minimum
+    if (s.indexOf('.') === -1) s += '.0';
+    return s;
+  }
+
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  // ── Init ──
+  updateMonthDisplay();
+})();
+</script>
+</body>
+</html>

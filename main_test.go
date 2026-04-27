@@ -3,10 +3,12 @@ package main
 import (
 	"testing"
 	"time"
+
+	"certponto-claim-calc/internal/calc"
 )
 
 func TestFullPlanMarch2026NoHolidays(t *testing.T) {
-	plan := calcModoA(2026, time.March, nil)
+	plan := calc.CalcModoA(2026, time.March, nil)
 
 	// March 2026 starts on Monday, has 31 days → 5 weeks
 	if len(plan.Weeks) != 5 {
@@ -19,23 +21,23 @@ func TestFullPlanMarch2026NoHolidays(t *testing.T) {
 		totalDays += len(w.Days)
 	}
 	if totalDays != 22 {
-		t.Errorf("total de dias úteis = %d, want 22", totalDays)
+		t.Errorf("total de dias uteis = %d, want 22", totalDays)
 	}
 
 	// Extra must not exceed 16h
 	var extra float64
 	for _, w := range plan.Weeks {
 		for _, d := range w.Days {
-			extra += d.Hours - baseHoursPerDay
+			extra += d.Hours - calc.BaseHoursPerDay
 		}
 	}
 	if extra > 16.01 {
-		t.Errorf("extra = %.2f, não deve exceder 16h", extra)
+		t.Errorf("extra = %.2f, nao deve exceder 16h", extra)
 	}
 }
 
 func TestCertPontoEntryTime(t *testing.T) {
-	entrada, saida := formatCertPonto(9.0)
+	entrada, saida := calc.FormatCertPonto(9.0)
 	if entrada != "07:00" {
 		t.Errorf("entrada para 9h = %q, want 07:00", entrada)
 	}
@@ -45,8 +47,8 @@ func TestCertPontoEntryTime(t *testing.T) {
 }
 
 func TestModoAAndModoBProduceSameTotalDays(t *testing.T) {
-	planA := calcModoA(2026, time.March, nil)
-	planB := calcModoB(2026, time.March, nil)
+	planA := calc.CalcModoA(2026, time.March, nil)
+	planB := calc.CalcModoB(2026, time.March, nil)
 	if planA.TotalDays != planB.TotalDays {
 		t.Errorf("ModoA.TotalDays=%d != ModoB.TotalDays=%d", planA.TotalDays, planB.TotalDays)
 	}
@@ -60,11 +62,11 @@ func TestParseArgsValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseArgs: unexpected error: %v", err)
 	}
-	if cfg.Year != 2026 || cfg.Month != time.March {
-		t.Errorf("parseArgs: got year=%d month=%v, want 2026 March", cfg.Year, cfg.Month)
+	if cfg.year != 2026 || cfg.month != int(time.March) {
+		t.Errorf("parseArgs: got year=%d month=%d, want 2026 March", cfg.year, cfg.month)
 	}
-	if cfg.ModoUniforme {
-		t.Error("ModoUniforme should default to false")
+	if cfg.modoUniforme {
+		t.Error("modoUniforme should default to false")
 	}
 }
 
@@ -73,8 +75,8 @@ func TestParseArgsWithFeriados(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseArgs: unexpected error: %v", err)
 	}
-	if len(cfg.Feriados) != 2 || cfg.Feriados[0] != 19 || cfg.Feriados[1] != 25 {
-		t.Errorf("Feriados = %v, want [19 25]", cfg.Feriados)
+	if len(cfg.feriados) != 2 || cfg.feriados[0] != 19 || cfg.feriados[1] != 25 {
+		t.Errorf("feriados = %v, want [19 25]", cfg.feriados)
 	}
 }
 
