@@ -370,18 +370,11 @@ func runServer() {
 // ── Entry point ──
 
 func main() {
+	// Server mode: PORT is set (Vercel) or no CLI args provided
 	port := os.Getenv("PORT")
-
-	if port != "" {
-		// Server mode (Vercel sets PORT)
+	if port != "" || len(os.Args) < 2 {
 		runServer()
 		return
-	}
-
-	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "Uso: calc Mmm-YYYY [--feriados 1,2,3] [--modo uniforme]\n")
-		fmt.Fprintf(os.Stderr, "     Set PORT env var to run as HTTP server\n")
-		os.Exit(1)
 	}
 
 	// CLI mode
