@@ -41,6 +41,7 @@ Thumbs.db
 
 # Documentation and planning artifacts
 docs/
+dev-factory/
 
 # API response fixtures containing tokens (DO NOT REMOVE)
 legal_true.txt

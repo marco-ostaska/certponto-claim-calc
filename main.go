@@ -20,15 +20,17 @@ var staticFS embed.FS
 
 // config is the CLI-only argument structure (unexported).
 type config struct {
-	year          int
-	month         int
-	feriados      []int
+	year         int
+	month        int
+	feriados     []int
 	modoUniforme bool
+	modoBloco    float64
+	extra        float64
 }
 
 func parseArgs(args []string) (config, error) {
 	if len(args) < 1 {
-		return config{}, fmt.Errorf("uso: calc Mmm-YYYY [--feriados 1,2,3] [--modo uniforme]")
+		return config{}, fmt.Errorf("uso: calc Mmm-YYYY [--feriados 1,2,3] [--modo atual|uniforme|meia] [--extra 16|8]")
 	}
 
 	y, m, err := calc.ParseMonthYear(args[0])
@@ -36,7 +38,7 @@ func parseArgs(args []string) (config, error) {
 		return config{}, err
 	}
 
-	cfg := config{year: y, month: int(m)}
+	cfg := config{year: y, month: int(m), modoBloco: calc.BlocoHoraCheia, extra: calc.ExtraMonthly}
 
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
@@ -54,25 +56,42 @@ func parseArgs(args []string) (config, error) {
 			}
 		case "--modo":
 			if i+1 >= len(args) {
-				return config{}, fmt.Errorf("--modo requer um valor: atual ou uniforme")
+				return config{}, fmt.Errorf("--modo requer um valor: atual, uniforme ou meia")
 			}
 			i++
-			if args[i] != "atual" && args[i] != "uniforme" {
-				return config{}, fmt.Errorf("--modo invalido %q, use: atual ou uniforme", args[i])
+			uniforme, bloco, err := parseModo(args[i])
+			if err != nil {
+				return config{}, err
 			}
-			cfg.modoUniforme = args[i] == "uniforme"
+			cfg.modoUniforme, cfg.modoBloco = uniforme, bloco
+		case "--extra":
+			if i+1 >= len(args) {
+				return config{}, fmt.Errorf("--extra requer um valor: 16 ou 8")
+			}
+			i++
+			extra, err := parseExtra(args[i])
+			if err != nil {
+				return config{}, err
+			}
+			cfg.extra = extra
 		default:
 			return config{}, fmt.Errorf("argumento desconhecido: %q", args[i])
 		}
 	}
 
+	// ADR-02-2: a recusa é a mesma função e a mesma mensagem nos dois caminhos;
+	// o CLI devolve o erro já montado, sem reescrever o texto.
+	if err := validateModoExtra(cfg.modoUniforme, cfg.modoBloco, cfg.extra); err != nil {
+		return config{}, err
+	}
+
 	return cfg, nil
 }
 
-func renderPlan(plan calc.MonthPlan) {
-	modo := "jeito atual"
-	if plan.ModoUniforme {
-		modo = "uniforme"
+func renderPlan(plan calc.MonthPlan, feriados []int, modoLabel string) {
+	feriadoSet := make(map[int]bool, len(feriados))
+	for _, d := range feriados {
+		feriadoSet[d] = true
 	}
 
 	holidayNote := ""
@@ -88,7 +107,7 @@ func renderPlan(plan calc.MonthPlan) {
 		plan.TotalHours-plan.ExtraHours,
 		plan.ExtraHours,
 	)
-	fmt.Printf("Modo: %s\n\n", modo)
+	fmt.Printf("Modo: %s\n\n", modoLabel)
 
 	var totalExtra float64
 
@@ -108,6 +127,10 @@ func renderPlan(plan calc.MonthPlan) {
 		for _, d := range week.Days {
 			wd := calc.WeekdayPT[d.Date.Weekday()]
 			day := d.Date.Day()
+			if feriadoSet[day] {
+				fmt.Printf("  %s %02d  Feriado\n", wd, day)
+				continue
+			}
 			claim := calc.FormatClaim(d.Hours)
 			entrada, saida := calc.FormatCertPonto(d.Hours)
 			fmt.Printf("  %s %02d  Claim: %-5s  CertPonto: %s–%s\n",
@@ -118,13 +141,7 @@ func renderPlan(plan calc.MonthPlan) {
 		fmt.Printf("  Extra acumulada: +%.2fh\n\n", totalExtra)
 	}
 
-	var total float64
-	for _, w := range plan.Weeks {
-		for _, d := range w.Days {
-			total += d.Hours
-		}
-	}
-	fmt.Printf("Total: %.1fh  |  Extra: %.1fh\n\n", total, totalExtra)
+	fmt.Printf("Total: %.1fh  |  Extra: %.1fh\n\n", plan.TotalHours, plan.ExtraHours)
 }
 
 // ── API response types ──
@@ -181,6 +198,7 @@ func parseFeriados(s string) ([]int, error) {
 		return nil, nil
 	}
 	var result []int
+	seen := make(map[int]bool)
 	for _, part := range strings.Split(s, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
@@ -190,20 +208,59 @@ func parseFeriados(s string) ([]int, error) {
 		if err != nil || d < 1 || d > 31 {
 			return nil, fmt.Errorf("dia de feriado invalido: %q", part)
 		}
+		if seen[d] {
+			continue
+		}
+		seen[d] = true
 		result = append(result, d)
 	}
 	return result, nil
 }
 
-// parseModo returns (uniforme, error) for the modo query param.
-func parseModo(s string) (bool, error) {
-	if s == "" || s == "a" || s == "atual" {
-		return false, nil
+// parseModo returns the distribution axis: uniforme=true for the evenly
+// distributed mode, bloco = extra hours per day (1h or 0.5h).
+func parseModo(s string) (uniforme bool, bloco float64, err error) {
+	switch s {
+	case "", "a", "atual":
+		return false, calc.BlocoHoraCheia, nil
+	case "b", "uniforme":
+		return true, calc.BlocoHoraCheia, nil
+	case "meia":
+		return false, calc.BlocoMeiaHora, nil
 	}
-	if s == "b" || s == "uniforme" {
-		return true, nil
+	return false, 0, fmt.Errorf("modo invalido %q, use: a, atual, b, uniforme ou meia", s)
+}
+
+// parseExtra returns the monthly extra-hour target (16 by default, or 8).
+func parseExtra(s string) (float64, error) {
+	switch s {
+	case "", "16":
+		return calc.ExtraMonthly, nil
+	case "8":
+		return calc.ExtraOito, nil
 	}
-	return false, fmt.Errorf("modo invalido %q, use: a, atual, b ou uniforme", s)
+	return 0, fmt.Errorf("extra invalido %q, use: 16 ou 8", s)
+}
+
+// modoLabel is the single source of the mode label (JSON response and CLI).
+func modoLabel(uniforme bool, bloco float64) string {
+	if uniforme {
+		return "Uniforme"
+	}
+	if bloco == calc.BlocoMeiaHora {
+		return "Meia hora"
+	}
+	return "Jeito atual"
+}
+
+// validateModoExtra rejects the infeasible combination: "meia" only exists for
+// the 8h target (the 0.5h blocks cannot reach 16h in a month). The message is
+// shared by the HTTP handler and the CLI, so both refuse with the same text.
+func validateModoExtra(uniforme bool, bloco, extra float64) error {
+	if uniforme || bloco == calc.BlocoHoraCheia || extra == calc.ExtraOito {
+		return nil
+	}
+	return fmt.Errorf("modo meia requer extra=8 (use --extra 8 ou &extra=8)")
 }
 
 // fullWeekdayName maps abbreviations to full Portuguese weekday names.
@@ -219,22 +276,17 @@ var fullWeekdayName = map[string]string{
 
 // buildResponse converts a calc.MonthPlan into the API response structure.
 // feriados is passed separately so individual days can be marked as is_feriado.
-func buildResponse(plan calc.MonthPlan, feriados []int) successResponse {
+func buildResponse(plan calc.MonthPlan, feriados []int, modoLabel string) successResponse {
 	feriadoSet := make(map[int]bool)
 	for _, d := range feriados {
 		feriadoSet[d] = true
-	}
-
-	modo := "Jeito atual"
-	if plan.ModoUniforme {
-		modo = "Uniforme"
 	}
 
 	horasBase := plan.TotalHours - plan.ExtraHours
 
 	resp := successResponse{
 		Mes:         fmt.Sprintf("%s %d", calc.MonthPT[plan.Month], plan.Year),
-		Modo:        modo,
+		Modo:        modoLabel,
 		DiasUteis:   plan.TotalDays,
 		NumFeriados: plan.HolidayCount,
 		HorasBase:   horasBase,
@@ -276,6 +328,11 @@ func buildResponse(plan calc.MonthPlan, feriados []int) successResponse {
 
 			entrada, saida := calc.FormatCertPonto(d.Hours)
 
+			certponto := entrada + "–" + saida
+			if isFeriado {
+				certponto = "FERIADO"
+			}
+
 			rd := responseDay{
 				Date:       d.Date.Format("2006-01-02"),
 				D:          d.Date.Day(),
@@ -286,7 +343,7 @@ func buildResponse(plan calc.MonthPlan, feriados []int) successResponse {
 				IsWorking:  isWorking,
 				IsShortDay: isShortDay,
 				Claim:      calc.FormatClaim(d.Hours),
-				CertPonto:  entrada + "–" + saida,
+				CertPonto:  certponto,
 				Extra:      extra,
 			}
 			rw.Days = append(rw.Days, rd)
@@ -319,20 +376,31 @@ func handleAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	uniforme, err := parseModo(r.URL.Query().Get("modo"))
+	uniforme, bloco, err := parseModo(r.URL.Query().Get("modo"))
 	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	extra, err := parseExtra(r.URL.Query().Get("extra"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := validateModoExtra(uniforme, bloco, extra); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	var plan calc.MonthPlan
 	if uniforme {
-		plan = calc.CalcModoB(year, month, feriados)
+		plan = calc.CalcModoB(year, month, feriados, extra)
 	} else {
-		plan = calc.CalcModoA(year, month, feriados)
+		plan = calc.CalcModoA(year, month, feriados, extra, bloco)
 	}
 
-	resp := buildResponse(plan, feriados)
+	resp := buildResponse(plan, feriados, modoLabel(uniforme, bloco))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
@@ -381,20 +449,20 @@ func main() {
 	cfg, err := parseArgs(os.Args[1:])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Erro: %v\n", err)
-		fmt.Fprintf(os.Stderr, "Uso: calc Mmm-YYYY [--feriados 1,2,3] [--modo uniforme]\n")
+		fmt.Fprintf(os.Stderr, "Uso: calc Mmm-YYYY [--feriados 1,2,3] [--modo atual|uniforme|meia] [--extra 16|8]\n")
 		os.Exit(1)
 	}
 
 	var plan calc.MonthPlan
 	if cfg.modoUniforme {
-		plan = calc.CalcModoB(cfg.year, time.Month(cfg.month), cfg.feriados)
+		plan = calc.CalcModoB(cfg.year, time.Month(cfg.month), cfg.feriados, cfg.extra)
 	} else {
-		plan = calc.CalcModoA(cfg.year, time.Month(cfg.month), cfg.feriados)
+		plan = calc.CalcModoA(cfg.year, time.Month(cfg.month), cfg.feriados, cfg.extra, cfg.modoBloco)
 	}
 
 	if plan.Warning != "" {
 		fmt.Fprintf(os.Stderr, "%s\n", plan.Warning)
 	}
 
-	renderPlan(plan)
+	renderPlan(plan, cfg.feriados, modoLabel(cfg.modoUniforme, cfg.modoBloco))
 }
