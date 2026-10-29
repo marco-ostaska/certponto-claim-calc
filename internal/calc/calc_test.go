@@ -1,6 +1,7 @@
 package calc
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -13,9 +14,9 @@ func TestWorkdays(t *testing.T) {
 		wantDays int
 	}{
 		{2026, time.March, nil, 22},           // março 2026: 31 dias, 4 sáb, 5 dom = 22 úteis
-		{2026, time.February, nil, 20},         // fev 2026: 28 dias, 4 sáb, 4 dom = 20 úteis
-		{2026, time.March, []int{19}, 21},      // março com 1 feriado
-		{2026, time.March, []int{19, 20}, 20},  // março com 2 feriados
+		{2026, time.February, nil, 20},        // fev 2026: 28 dias, 4 sáb, 4 dom = 20 úteis
+		{2026, time.March, []int{19}, 21},     // março com 1 feriado
+		{2026, time.March, []int{19, 20}, 20}, // março com 2 feriados
 	}
 	for _, tt := range tests {
 		days := Workdays(tt.year, tt.month, tt.feriados)
@@ -57,7 +58,7 @@ func TestParseMonthYear(t *testing.T) {
 }
 
 func TestModoA_MarchNoHolidays(t *testing.T) {
-	plan := CalcModoA(2026, time.March, nil)
+	plan := CalcModoA(2026, time.March, nil, 16, BlocoHoraCheia)
 
 	if plan.TotalDays != 22 {
 		t.Errorf("TotalDays = %d, want 22", plan.TotalDays)
@@ -85,7 +86,7 @@ func TestModoA_ExtraDoesNotExceed16(t *testing.T) {
 		time.July, time.August, time.October, time.December,
 	}
 	for _, m := range months {
-		plan := CalcModoA(2026, m, nil)
+		plan := CalcModoA(2026, m, nil, 16, BlocoHoraCheia)
 		var extra float64
 		for _, w := range plan.Weeks {
 			for _, d := range w.Days {
@@ -101,7 +102,7 @@ func TestModoA_ExtraDoesNotExceed16(t *testing.T) {
 func TestModoA_WithHoliday(t *testing.T) {
 	// March 2026 with holiday on day 19 (Thursday)
 	// workdays = 21 (one less), total = 21*8+16 = 184
-	plan := CalcModoA(2026, time.March, []int{19})
+	plan := CalcModoA(2026, time.March, []int{19}, 16, BlocoHoraCheia)
 
 	if plan.TotalDays != 21 {
 		t.Errorf("TotalDays = %d, want 21", plan.TotalDays)
@@ -125,7 +126,7 @@ func TestModoA_WithHoliday(t *testing.T) {
 }
 
 func TestModoB_UniformDistribution(t *testing.T) {
-	plan := CalcModoB(2026, time.March, nil)
+	plan := CalcModoB(2026, time.March, nil, 16)
 
 	if plan.TotalDays != 22 {
 		t.Errorf("TotalDays = %d, want 22", plan.TotalDays)
@@ -149,7 +150,7 @@ func TestModoB_UniformDistribution(t *testing.T) {
 }
 
 func TestModoB_TotalHoursCorrect(t *testing.T) {
-	plan := CalcModoB(2026, time.March, nil)
+	plan := CalcModoB(2026, time.March, nil, 16)
 	var total float64
 	for _, w := range plan.Weeks {
 		for _, d := range w.Days {
@@ -168,29 +169,306 @@ func TestModoB_TotalHoursCorrect(t *testing.T) {
 }
 
 func TestModoB_ModoUniformeFlag(t *testing.T) {
-	plan := CalcModoB(2026, time.March, nil)
+	plan := CalcModoB(2026, time.March, nil, 16)
 	if !plan.ModoUniforme {
 		t.Error("ModoUniforme deve ser true para CalcModoB")
 	}
 }
 
-func TestMaxPossibleExtra(t *testing.T) {
-	// March 2026 no holidays: many Mon-Thu available, easily > 16h
-	days := Workdays(2026, time.March, nil)
-	max := MaxPossibleExtra(days)
-	if max < 16.0 {
-		t.Errorf("março sem feriados: MaxPossibleExtra = %.1f, should be >= 16", max)
-	}
-
-	// March 2026 with all Mon-Thu as holidays (days 2,3,4,5,9,10,11,12,16,17,18,19,23,24,25,26,30,31)
-	// Only Fridays remain: 6,13,20,27 — zero extra possible
+func TestCapacity_SomenteSextas(t *testing.T) {
+	// Com todos os seg-qui como feriado restam 4 sextas, cada uma numa semana que
+	// perdeu seg-qui => 1h de capacidade cada (D14), total 4h.
 	allMonThu := []int{2, 3, 4, 5, 9, 10, 11, 12, 16, 17, 18, 19, 23, 24, 25, 26, 30, 31}
-	days2 := Workdays(2026, time.March, allMonThu)
-	max2 := MaxPossibleExtra(days2)
-	if max2 >= 16.0 {
-		t.Errorf("março com todos seg-qui como feriado: MaxPossibleExtra = %.1f, should be < 16", max2)
+	if got := Capacity(2026, time.March, allMonThu, ExtraMonthly); got != 4.0 {
+		t.Errorf("Capacity com só sextas = %.1f, want 4.0", got)
 	}
-	if max2 != 0.0 {
-		t.Errorf("com só sextas: MaxPossibleExtra = %.1f, should be 0.0", max2)
+}
+
+func TestCapacity_Weeks(t *testing.T) {
+	tests := []struct {
+		year     int
+		month    time.Month
+		feriados []int
+		want     float64
+	}{
+		{2026, time.March, nil, 18},           // 4 semanas cheias (4h) + semana final de 2 dias (2h)
+		{2026, time.February, nil, 16},        // 4 semanas cheias
+		{2027, time.October, []int{12}, 16},   // sexta 01/10 sozinha não conta; as 4 semanas seguintes fecham 16h
+		{2026, time.February, []int{17}, 16},  // semana com 1 feriado usa a sexta e mantém 4h
+		{2026, time.March, []int{17, 18}, 17}, // semana com 2 feriados perde 1h
+		{2026, time.February, []int{17, 18}, 15},
+	}
+	for _, tt := range tests {
+		if got := Capacity(tt.year, tt.month, tt.feriados, ExtraMonthly); got != tt.want {
+			t.Errorf("Capacity(%d, %v, %v) = %.1f, want %.1f", tt.year, tt.month, tt.feriados, got, tt.want)
+		}
+	}
+}
+
+func TestModoA_FeriadoNaSemana(t *testing.T) {
+	// Mar/2026 com feriado em 19 (quinta): a semana 16-20 precisa somar 44h,
+	// então a sexta 20 também recebe 1h (redistribuição semanal, D14).
+	plan := CalcModoA(2026, time.March, []int{19}, 16, BlocoHoraCheia)
+	if plan.TotalHours != 184 {
+		t.Errorf("TotalHours = %.1f, want 184", plan.TotalHours)
+	}
+	got := map[int]float64{}
+	for _, w := range plan.Weeks {
+		for _, d := range w.Days {
+			got[d.Date.Day()] = d.Hours
+		}
+	}
+	if got[19] != BaseHoursPerDay {
+		t.Errorf("feriado 19 com %.1fh, want 8", got[19])
+	}
+	if got[20] != DefaultMonThu {
+		t.Errorf("sexta 20 com %.1fh, want 9 (exceção da sexta)", got[20])
+	}
+}
+
+func TestModoA_Teto8(t *testing.T) {
+	plan := CalcModoA(2026, time.March, nil, 8, BlocoHoraCheia)
+	if plan.TotalHours != 184 || plan.ExtraHours != 8 {
+		t.Errorf("Total/Extra = %.1f/%.1f, want 184/8", plan.TotalHours, plan.ExtraHours)
+	}
+	nove, oito := 0, 0
+	for _, w := range plan.Weeks {
+		for _, d := range w.Days {
+			switch d.Hours {
+			case DefaultMonThu:
+				nove++
+			case BaseHoursPerDay:
+				oito++
+			}
+		}
+	}
+	if nove != 8 || oito != 14 {
+		t.Errorf("dias 9h/8h = %d/%d, want 8/14", nove, oito)
+	}
+}
+
+func TestModoMeia_Teto8(t *testing.T) {
+	plan := CalcModoA(2026, time.March, nil, 8, BlocoMeiaHora)
+	if plan.TotalHours != 184 {
+		t.Errorf("TotalHours = %.1f, want 184", plan.TotalHours)
+	}
+	n := 0
+	for _, w := range plan.Weeks {
+		for _, d := range w.Days {
+			if d.Hours == BaseHoursPerDay+BlocoMeiaHora {
+				n++
+			}
+		}
+	}
+	if n != 16 {
+		t.Errorf("dias de 8,5h = %d, want 16", n)
+	}
+}
+
+func TestModoMeia_Promocao(t *testing.T) {
+	// Fev/2026 com 17 e 18: a alocação a 0,5h só alcança 7,5h, então 1 dia é
+	// promovido para 9h (D12) e o mês fecha 152h.
+	plan := CalcModoA(2026, time.February, []int{17, 18}, 8, BlocoMeiaHora)
+	if plan.TotalHours != 152 || plan.ExtraHours != 8 {
+		t.Errorf("Total/Extra = %.1f/%.1f, want 152/8", plan.TotalHours, plan.ExtraHours)
+	}
+	nove := 0
+	for _, w := range plan.Weeks {
+		for _, d := range w.Days {
+			if d.Hours == DefaultMonThu {
+				nove++
+			}
+		}
+	}
+	if nove != 1 {
+		t.Errorf("dias de 9h = %d, want 1 (promoção)", nove)
+	}
+}
+
+func TestModoA_MesCurto(t *testing.T) {
+	plan := CalcModoA(2026, time.February, []int{17, 18}, 16, BlocoHoraCheia)
+	if plan.ExtraHours != 15 || plan.TotalHours != 159 {
+		t.Errorf("Extra/Total = %.1f/%.1f, want 15/159", plan.ExtraHours, plan.TotalHours)
+	}
+	if plan.Warning == "" {
+		t.Error("esperava aviso de teto inatingível")
+	}
+}
+
+func TestTodosDiasUteisAbaixoDe9h(t *testing.T) {
+	// `uniforme` fica de fora: D23 diz que ele não tem teto diário.
+	meses := []time.Month{time.January, time.February, time.March, time.April, time.May, time.June,
+		time.July, time.August, time.September, time.October, time.November, time.December}
+	for _, m := range meses {
+		for _, target := range []float64{ExtraMonthly, ExtraOito} {
+			for _, bloco := range []float64{BlocoHoraCheia, BlocoMeiaHora} {
+				plan := CalcModoA(2026, m, nil, target, bloco)
+				for _, w := range plan.Weeks {
+					for _, d := range w.Days {
+						if d.Hours > DefaultMonThu+1e-9 {
+							t.Errorf("mês %v target %.0f bloco %.1f: dia %d com %.2fh",
+								m, target, bloco, d.Date.Day(), d.Hours)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestFeriadoNoPlano(t *testing.T) {
+	plan := CalcModoA(2026, time.March, []int{19}, 16, BlocoHoraCheia)
+	if plan.TotalDays != 21 {
+		t.Errorf("TotalDays = %d, want 21 (feriado não é dia útil)", plan.TotalDays)
+	}
+	visto := false
+	for _, w := range plan.Weeks {
+		for _, d := range w.Days {
+			if d.Date.Day() == 19 {
+				visto = true
+				if d.Hours != BaseHoursPerDay {
+					t.Errorf("feriado 19 com %.1fh, want 8", d.Hours)
+				}
+			}
+		}
+	}
+	if !visto {
+		t.Error("feriado 19 não apareceu no plano (D22)")
+	}
+}
+
+func TestModoB_MesSemDiaUtil(t *testing.T) {
+	// Todos os dias seg-sex como feriado: totais de trabalho zeram, mas as linhas
+	// de feriado continuam no plano (D17/D22).
+	todos := []int{2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 16, 17, 18, 19, 20, 23, 24, 25, 26, 27, 30, 31}
+	plan := CalcModoB(2026, time.March, todos, 16)
+	if plan.TotalDays != 0 || plan.TotalHours != 0 || plan.ExtraHours != 0 {
+		t.Errorf("totais = %d/%.1f/%.1f, want 0/0/0", plan.TotalDays, plan.TotalHours, plan.ExtraHours)
+	}
+	if plan.Warning == "" {
+		t.Error("esperava aviso de mês sem dia útil")
+	}
+	linhas := 0
+	for _, w := range plan.Weeks {
+		for _, d := range w.Days {
+			linhas++
+			if d.Hours != BaseHoursPerDay {
+				t.Errorf("feriado %d com %.1fh, want 8", d.Date.Day(), d.Hours)
+			}
+		}
+	}
+	if linhas != len(todos) {
+		t.Errorf("linhas de feriado = %d, want %d", linhas, len(todos))
+	}
+}
+
+func TestFeriadosDuplicados(t *testing.T) {
+	if got := CountHolidays(2026, time.March, []int{19, 19}); got != 1 {
+		t.Errorf("CountHolidays com duplicata = %d, want 1", got)
+	}
+}
+
+func TestInvarianteSoma(t *testing.T) {
+	casos := []struct {
+		month    time.Month
+		feriados []int
+		target   float64
+		bloco    float64
+		uniforme bool
+	}{
+		{time.March, nil, ExtraMonthly, BlocoHoraCheia, false},
+		{time.March, []int{19}, ExtraMonthly, BlocoHoraCheia, false},
+		{time.March, nil, ExtraOito, BlocoHoraCheia, false},
+		{time.March, nil, ExtraOito, BlocoMeiaHora, false},
+		{time.February, []int{17, 18}, ExtraMonthly, BlocoHoraCheia, false},
+		{time.February, []int{17, 18}, ExtraOito, BlocoMeiaHora, false},
+		{time.March, nil, ExtraMonthly, BlocoHoraCheia, true},
+		{time.March, []int{19}, ExtraOito, BlocoHoraCheia, true},
+	}
+	for _, c := range casos {
+		var plan MonthPlan
+		if c.uniforme {
+			plan = CalcModoB(2026, c.month, c.feriados, c.target)
+		} else {
+			plan = CalcModoA(2026, c.month, c.feriados, c.target, c.bloco)
+		}
+		fer := map[int]bool{}
+		for _, f := range c.feriados {
+			fer[f] = true
+		}
+		var uteis, feriados float64
+		for _, w := range plan.Weeks {
+			for _, d := range w.Days {
+				if fer[d.Date.Day()] {
+					feriados += d.Hours
+				} else {
+					uteis += d.Hours
+				}
+			}
+		}
+		wantUteis := float64(plan.TotalDays)*BaseHoursPerDay + plan.ExtraHours
+		wantFeriados := float64(plan.HolidayCount) * BaseHoursPerDay
+		if math.Abs(uteis-wantUteis) > 1e-9 {
+			t.Errorf("%v %v: soma úteis = %.2f, want %.2f", c.month, c.feriados, uteis, wantUteis)
+		}
+		if math.Abs(feriados-wantFeriados) > 1e-9 {
+			t.Errorf("%v %v: soma feriados = %.2f, want %.2f", c.month, c.feriados, feriados, wantFeriados)
+		}
+		if (plan.ExtraHours < c.target) != (plan.Warning != "") {
+			t.Errorf("%v %v target %.0f: extra=%.1f warning=%q", c.month, c.feriados, c.target, plan.ExtraHours, plan.Warning)
+		}
+		if math.Abs(plan.TotalHours-wantUteis) > 1e-9 {
+			t.Errorf("%v: TotalHours=%.1f inconsistente com base+extra", c.month, plan.TotalHours)
+		}
+	}
+}
+
+func TestSemanaNaoPassaDoContrato(t *testing.T) {
+	// Contrato: 44h/semana com teto 16h (4h de cota semanal) e 42h/semana com
+	// teto 8h (2h de cota semanal). Nenhuma semana pode passar do limite, mesmo
+	// com feriado (que entra como 8h pagas no cálculo da semana).
+	casos := []struct {
+		month    time.Month
+		feriados []int
+		target   float64
+		limite   float64
+	}{
+		{time.October, nil, ExtraMonthly, 44},
+		{time.October, []int{12}, ExtraMonthly, 44},
+		{time.October, nil, ExtraOito, 42},
+		{time.October, []int{12}, ExtraOito, 42},
+		{time.March, nil, ExtraMonthly, 44},
+		{time.March, []int{19}, ExtraMonthly, 44},
+		{time.March, nil, ExtraOito, 42},
+		{time.February, []int{17}, ExtraOito, 42},
+	}
+	for _, c := range casos {
+		plan := CalcModoA(2026, c.month, c.feriados, c.target, BlocoHoraCheia)
+		fer := map[int]bool{}
+		for _, f := range c.feriados {
+			fer[f] = true
+		}
+		for _, w := range plan.Weeks {
+			total := 0.0
+			for _, d := range w.Days {
+				total += d.Hours
+			}
+			if total > c.limite+1e-9 {
+				t.Errorf("%v feriados=%v target=%.0f: semana %d = %.1fh, limite %.0fh",
+					c.month, c.feriados, c.target, w.Number, total, c.limite)
+			}
+		}
+	}
+}
+
+func TestCapacity_CotaSemanalDoContrato(t *testing.T) {
+	// Cota semanal = teto/4: 16h → 4h/semana (44h), 8h → 2h/semana (42h).
+	// Out/2026 começa numa quinta: a primeira semana só tem 1 dia seg-qui,
+	// então contribui 1h; as quatro semanas seguintes contribuem 2h cada.
+	if got := Capacity(2026, time.October, nil, ExtraOito); got != 9 {
+		t.Errorf("Capacity Out/2026 teto 8h = %.1f, want 9", got)
+	}
+	if got := Capacity(2026, time.October, nil, ExtraMonthly); got != 17 {
+		t.Errorf("Capacity Out/2026 teto 16h = %.1f, want 17", got)
 	}
 }

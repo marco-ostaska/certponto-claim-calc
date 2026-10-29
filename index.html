@@ -143,6 +143,7 @@ body{font-family:var(--sans);background:var(--bg-main);color:var(--text-primary)
 }
 .badge-blue{background:#dbeafe;color:#1e40af}
 .badge-green{background:#dcfce7;color:var(--green)}
+.badge-red{background:#fee2e2;color:var(--red)}
 .certponto{font-family:var(--mono);font-size:.78rem}
 .tag{
   display:inline-block;padding:1px 7px;border-radius:4px;font-size:.65rem;
@@ -153,6 +154,9 @@ body{font-family:var(--sans);background:var(--bg-main);color:var(--text-primary)
 .tag-short{background:#dcfce7;color:var(--green)}
 .row-dimmed td{opacity:.45}
 .row-dimmed td.week-label-cell{opacity:1}
+.row-feriado td{background:#fef2f2!important;color:#991b1b}
+.row-feriado .day-name,.row-feriado .day-number,.row-feriado .certponto{color:#991b1b;font-weight:600}
+.row-feriado .badge-red{background:#fecaca}
 /* ── Week Summary Row ── */
 .week-summary td{
   background:var(--sidebar-bg)!important;color:var(--text-light)!important;
@@ -216,9 +220,19 @@ body{font-family:var(--sans);background:var(--bg-main);color:var(--text-primary)
   </div>
 
   <div class="field">
+    <label>Extra mensal</label>
+    <div class="mode-toggle" id="extra-toggle">
+      <button class="active" data-extra="16">16h</button>
+      <button data-extra="8">8h</button>
+    </div>
+    <div class="hint">44h/sem = 16h · 42h/sem = 8h</div>
+  </div>
+
+  <div class="field">
     <label>Modo</label>
     <div class="mode-toggle" id="mode-toggle">
       <button class="active" data-mode="a">Jeito atual</button>
+      <button data-mode="meia">Meia hora</button>
       <button data-mode="uniforme">Uniforme</button>
     </div>
   </div>
@@ -254,6 +268,7 @@ body{font-family:var(--sans);background:var(--bg-main);color:var(--text-primary)
   let monthObj = { month: now.getMonth(), year: now.getFullYear() };
   let feriados = '';
   let modo = 'a';
+  let extra = 16;
   let loading = false;
   let error = '';
   let result = null;
@@ -266,6 +281,7 @@ body{font-family:var(--sans);background:var(--bg-main);color:var(--text-primary)
   const btnNext      = document.getElementById('btn-next');
   const feriadosInput= document.getElementById('feriados');
   const modeToggle   = document.getElementById('mode-toggle');
+  const extraToggle  = document.getElementById('extra-toggle');
   const errorBox     = document.getElementById('error-box');
   const btnCalc      = document.getElementById('btn-calc');
   const spinner      = document.getElementById('spinner');
@@ -287,7 +303,8 @@ body{font-family:var(--sans);background:var(--bg-main);color:var(--text-primary)
   function updateApiUrl() {
     const url = '/api/calc?month=' + encodeURIComponent(monthStr(monthObj))
               + '&feriados=' + encodeURIComponent(feriados)
-              + '&modo=' + encodeURIComponent(modo);
+              + '&modo=' + encodeURIComponent(modo)
+              + '&extra=' + encodeURIComponent(extra);
     apiUrl.textContent = 'GET ' + url;
   }
 
@@ -310,10 +327,36 @@ body{font-family:var(--sans);background:var(--bg-main);color:var(--text-primary)
   modeToggle.addEventListener('click', function(e) {
     var btn = e.target.closest('button[data-mode]');
     if (!btn) return;
-    modo = btn.dataset.mode;
-    modeToggle.querySelectorAll('button').forEach(function(b) { b.classList.toggle('active', b === btn); });
+    if (btn.disabled) return;
+    setModo(btn.dataset.mode);
+  });
+
+  extraToggle.addEventListener('click', function(e) {
+    var btn = e.target.closest('button[data-extra]');
+    if (!btn) return;
+    extra = parseInt(btn.dataset.extra, 10);
+    extraToggle.querySelectorAll('button').forEach(function(b) {
+      b.classList.toggle('active', b === btn);
+    });
+    if (extra === 16 && modo === 'meia') setModo('a');
+    syncMeiaButton();
     updateApiUrl();
   });
+
+  // "Meia hora" só existe com teto de 8h (o backend responde 400 fora disso).
+  function syncMeiaButton() {
+    var meia = modeToggle.querySelector('button[data-mode="meia"]');
+    meia.disabled = extra === 16;
+    meia.title = extra === 16 ? 'requer extra 8h' : '';
+  }
+
+  function setModo(m) {
+    modo = m;
+    modeToggle.querySelectorAll('button').forEach(function(b) {
+      b.classList.toggle('active', b.dataset.mode === m);
+    });
+    updateApiUrl();
+  }
 
   btnCalc.addEventListener('click', doCalc);
 
@@ -334,7 +377,8 @@ body{font-family:var(--sans);background:var(--bg-main);color:var(--text-primary)
 
     var url = '/api/calc?month=' + encodeURIComponent(monthStr(monthObj))
             + '&feriados=' + encodeURIComponent(feriados)
-            + '&modo=' + encodeURIComponent(modo);
+            + '&modo=' + encodeURIComponent(modo)
+            + '&extra=' + encodeURIComponent(extra);
 
     fetch(url)
       .then(function(res) { return res.json(); })
@@ -384,9 +428,10 @@ body{font-family:var(--sans);background:var(--bg-main);color:var(--text-primary)
     html += '<div class="summary-bar">';
     html += summaryItem('Mes', r.mes);
     html += summaryItem('Modo', r.modo);
+    html += summaryItem('Extra', extra + 'h', r.horas_extra < extra ? 'realizado: ' + formatHours(r.horas_extra) + 'h' : '');
     html += summaryItem('Dias uteis', r.dias_uteis);
     if (r.num_feriados > 0) {
-      html += summaryItem('Feriados', r.num_feriados);
+      html += summaryItem('Feriados', r.num_feriados + ' × 8h', formatHours(r.num_feriados * 8) + 'h');
     }
     html += summaryItem('Total', formatHours(r.horas_total), formatHours(r.horas_base) + 'h base + ' + formatHours(r.horas_extra) + 'h extra');
     html += '</div>';
@@ -407,8 +452,8 @@ body{font-family:var(--sans);background:var(--bg-main);color:var(--text-primary)
       var weekExtra = 0;
 
       week.days.forEach(function(day) {
-        var dimmed = !day.is_working ? ' row-dimmed' : '';
-        html += '<tr class="' + dimmed + '">';
+        var rowClass = day.is_feriado ? ' row-feriado' : (!day.is_working ? ' row-dimmed' : '');
+        html += '<tr class="' + rowClass + '">';
 
         // Dia column: abbreviation + number
         html += '<td><span class="day-name">' + esc(day.dia_abrev) + '</span> <span class="day-number">' + day.d + '</span></td>';
@@ -419,7 +464,8 @@ body{font-family:var(--sans);background:var(--bg-main);color:var(--text-primary)
         html += '<td class="day-date">' + dateStr + '</td>';
 
         // Claim badge
-        var badgeClass = day.is_short_day ? 'badge badge-green' : 'badge badge-blue';
+        var badgeClass = day.is_feriado ? 'badge badge-red'
+                       : (day.is_short_day ? 'badge badge-green' : 'badge badge-blue');
         html += '<td><span class="' + badgeClass + '">' + esc(day.claim) + '</span></td>';
 
         // CertPonto
@@ -496,6 +542,7 @@ body{font-family:var(--sans);background:var(--bg-main);color:var(--text-primary)
 
   // ── Init ──
   updateMonthDisplay();
+  syncMeiaButton();
 })();
 </script>
 </body>
