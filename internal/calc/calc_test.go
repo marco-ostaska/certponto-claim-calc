@@ -179,7 +179,7 @@ func TestCapacity_SomenteSextas(t *testing.T) {
 	// Com todos os seg-qui como feriado restam 4 sextas, cada uma numa semana que
 	// perdeu seg-qui => 1h de capacidade cada (D14), total 4h.
 	allMonThu := []int{2, 3, 4, 5, 9, 10, 11, 12, 16, 17, 18, 19, 23, 24, 25, 26, 30, 31}
-	if got := Capacity(2026, time.March, allMonThu); got != 4.0 {
+	if got := Capacity(2026, time.March, allMonThu, ExtraMonthly); got != 4.0 {
 		t.Errorf("Capacity com só sextas = %.1f, want 4.0", got)
 	}
 }
@@ -199,7 +199,7 @@ func TestCapacity_Weeks(t *testing.T) {
 		{2026, time.February, []int{17, 18}, 15},
 	}
 	for _, tt := range tests {
-		if got := Capacity(tt.year, tt.month, tt.feriados); got != tt.want {
+		if got := Capacity(tt.year, tt.month, tt.feriados, ExtraMonthly); got != tt.want {
 			t.Errorf("Capacity(%d, %v, %v) = %.1f, want %.1f", tt.year, tt.month, tt.feriados, got, tt.want)
 		}
 	}
@@ -420,5 +420,55 @@ func TestInvarianteSoma(t *testing.T) {
 		if math.Abs(plan.TotalHours-wantUteis) > 1e-9 {
 			t.Errorf("%v: TotalHours=%.1f inconsistente com base+extra", c.month, plan.TotalHours)
 		}
+	}
+}
+
+func TestSemanaNaoPassaDoContrato(t *testing.T) {
+	// Contrato: 44h/semana com teto 16h (4h de cota semanal) e 42h/semana com
+	// teto 8h (2h de cota semanal). Nenhuma semana pode passar do limite, mesmo
+	// com feriado (que entra como 8h pagas no cálculo da semana).
+	casos := []struct {
+		month    time.Month
+		feriados []int
+		target   float64
+		limite   float64
+	}{
+		{time.October, nil, ExtraMonthly, 44},
+		{time.October, []int{12}, ExtraMonthly, 44},
+		{time.October, nil, ExtraOito, 42},
+		{time.October, []int{12}, ExtraOito, 42},
+		{time.March, nil, ExtraMonthly, 44},
+		{time.March, []int{19}, ExtraMonthly, 44},
+		{time.March, nil, ExtraOito, 42},
+		{time.February, []int{17}, ExtraOito, 42},
+	}
+	for _, c := range casos {
+		plan := CalcModoA(2026, c.month, c.feriados, c.target, BlocoHoraCheia)
+		fer := map[int]bool{}
+		for _, f := range c.feriados {
+			fer[f] = true
+		}
+		for _, w := range plan.Weeks {
+			total := 0.0
+			for _, d := range w.Days {
+				total += d.Hours
+			}
+			if total > c.limite+1e-9 {
+				t.Errorf("%v feriados=%v target=%.0f: semana %d = %.1fh, limite %.0fh",
+					c.month, c.feriados, c.target, w.Number, total, c.limite)
+			}
+		}
+	}
+}
+
+func TestCapacity_CotaSemanalDoContrato(t *testing.T) {
+	// Cota semanal = teto/4: 16h → 4h/semana (44h), 8h → 2h/semana (42h).
+	// Out/2026 começa numa quinta: a primeira semana só tem 1 dia seg-qui,
+	// então contribui 1h; as quatro semanas seguintes contribuem 2h cada.
+	if got := Capacity(2026, time.October, nil, ExtraOito); got != 9 {
+		t.Errorf("Capacity Out/2026 teto 8h = %.1f, want 9", got)
+	}
+	if got := Capacity(2026, time.October, nil, ExtraMonthly); got != 17 {
+		t.Errorf("Capacity Out/2026 teto 16h = %.1f, want 17", got)
 	}
 }

@@ -117,7 +117,7 @@ type MonthPlan struct {
 // day to a holiday. Holidays are plan days with base hours and no extra.
 func CalcModoA(year int, month time.Month, feriados []int, target, bloco float64) MonthPlan {
 	days := Workdays(year, month, feriados)
-	extra := math.Min(target, Capacity(year, month, feriados))
+	extra := math.Min(target, Capacity(year, month, feriados, target))
 
 	plan := MonthPlan{
 		Year:         year,
@@ -130,17 +130,32 @@ func CalcModoA(year int, month time.Month, feriados []int, target, bloco float64
 	}
 
 	placed := 0.0
+	cota := math.Min(target/4, 4)
 	for i, wk := range monthWeeks(year, month) {
 		week := Week{Number: i + 1}
 		friOK := weekLostMonThu(wk, feriados)
+
+		// Orçamento da semana: a cota do contrato limitada pelos dias elegíveis
+		// e pelo que ainda falta para fechar o teto mensal.
+		budget := 0.0
+		for _, d := range wk {
+			if !isFeriado(d, feriados) && eligibleDay(d, friOK) {
+				budget += bloco
+			}
+		}
+		budget = math.Min(budget, cota)
+		budget = math.Min(budget, extra-placed)
+
+		weekPlaced := 0.0
 		for _, d := range wk {
 			if isFeriado(d, feriados) {
 				week.Days = append(week.Days, WorkDay{Date: d, Hours: BaseHoursPerDay})
 				continue
 			}
 			add := 0.0
-			if placed < extra && eligibleDay(d, friOK) {
-				add = math.Min(bloco, extra-placed)
+			if weekPlaced < budget && eligibleDay(d, friOK) {
+				add = math.Min(bloco, budget-weekPlaced)
+				weekPlaced += add
 				placed += add
 			}
 			week.Days = append(week.Days, WorkDay{Date: d, Hours: BaseHoursPerDay + add})
@@ -148,17 +163,24 @@ func CalcModoA(year int, month time.Month, feriados []int, target, bloco float64
 		plan.Weeks = append(plan.Weeks, week)
 	}
 
-	// D12: quando o bloco de 0,5h não fecha o teto, promove dias para 1h (máx 9h/dia).
+	// D12: quando o bloco de 0,5h não fecha o teto, promove dias para 1h (máx 9h/dia
+	// e sem passar da cota semanal do contrato).
 	for wi := range plan.Weeks {
+		weeksExtra := 0.0
+		for _, d := range plan.Weeks[wi].Days {
+			weeksExtra += d.Hours - BaseHoursPerDay
+		}
 		for di := range plan.Weeks[wi].Days {
-			if placed >= extra {
+			if placed >= extra || weeksExtra >= cota-1e-9 {
 				break
 			}
 			d := &plan.Weeks[wi].Days[di]
 			if d.Hours > BaseHoursPerDay && d.Hours < DefaultMonThu {
 				inc := math.Min(DefaultMonThu-d.Hours, extra-placed)
+				inc = math.Min(inc, cota-weeksExtra)
 				d.Hours += inc
 				placed += inc
+				weeksExtra += inc
 			}
 		}
 	}
@@ -237,9 +259,11 @@ func CountHolidays(year int, month time.Month, feriados []int) int {
 
 // Capacity returns the maximum extra hours the month can carry following the
 // weekly redistribution rule: a Friday only takes extra when its week lost a
-// Mon-Thu day. Each week carries at most 4h, and the result does not depend on
-// the block size — the 0.5h allocation limits distribution, not capacity.
-func Capacity(year int, month time.Month, feriados []int) float64 {
+// Mon-Thu day. The weekly allowance comes from the contract — 4h per week for
+// the 16h target (44h/week) and 2h per week for the 8h target (42h/week) — so
+// no week can exceed its contract limit.
+func Capacity(year int, month time.Month, feriados []int, target float64) float64 {
+	cota := math.Min(target/4, 4)
 	var total float64
 	for _, wk := range monthWeeks(year, month) {
 		monThu, fri := 0, false
@@ -257,7 +281,7 @@ func Capacity(year int, month time.Month, feriados []int) float64 {
 		if fri && weekLostMonThu(wk, feriados) {
 			friOK = 1
 		}
-		total += math.Min(4, float64(monThu+friOK))
+		total += math.Min(cota, float64(monThu+friOK))
 	}
 	return total
 }
